@@ -52,10 +52,8 @@ class KodiStreamDetailsConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         errors: dict[str, str] = {}
 
-        # Get available Kodi entities
-        kodi_entities = await self.hass.async_add_executor_job(
-            _get_kodi_entities, self.hass
-        )
+        # Get available Kodi entities (this is synchronous, no executor needed)
+        kodi_entities = _get_kodi_entities(self.hass)
 
         if not kodi_entities:
             return self.async_abort(reason="no_kodi_entities")
@@ -74,8 +72,11 @@ class KodiStreamDetailsConfigFlow(ConfigFlow, domain=DOMAIN):
                 # Get a friendly name for the config entry
                 entity_registry = er.async_get(self.hass)
                 entry = entity_registry.async_get(source_entity)
-                title = entry.name or entry.original_name if entry else source_entity
-                title = title or source_entity.replace("media_player.", "").replace("_", " ").title()
+                if entry:
+                    title = entry.name or entry.original_name or source_entity
+                else:
+                    title = source_entity
+                title = title.replace("media_player.", "").replace("_", " ").title()
 
                 return self.async_create_entry(
                     title=f"{title} Stream Details",

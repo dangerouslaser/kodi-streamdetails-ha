@@ -25,8 +25,6 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-KODI_DOMAIN = "kodi"
-
 
 class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to fetch stream details from Kodi."""
@@ -45,50 +43,89 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=poll_interval),
         )
         self.source_entity_id = source_entity_id
-        self._kodi_entity = None
+        self._kodi = None
 
     async def _get_kodi_connection(self) -> Any:
         """Get the Kodi connection from the media_player entity."""
-        # Get the entity from the state machine
+        # Return cached connection if available
+        if self._kodi is not None:
+            return self._kodi
+
+        # Get the entity from the state machine to verify it exists
         state = self.hass.states.get(self.source_entity_id)
         if state is None:
             raise UpdateFailed(f"Entity {self.source_entity_id} not found")
 
-        # Access the Kodi integration's data to find the connection
-        # The Kodi integration stores its data keyed by config entry ID
-        if KODI_DOMAIN not in self.hass.data:
-            raise UpdateFailed("Kodi integration not loaded")
-
-        # Find the Kodi entity component
-        entity_component = self.hass.data.get("entity_components", {}).get("media_player")
-        if entity_component is None:
-            # Try alternate path
-            from homeassistant.helpers.entity_component import EntityComponent
-            from homeassistant.components.media_player import DOMAIN as MP_DOMAIN
-            entity_component = self.hass.data.get(MP_DOMAIN)
-
-        if entity_component is None:
-            raise UpdateFailed("Media player component not found")
-
-        # Get the entity
+        # Try to get the entity from the media_player domain data
         entity = None
-        if hasattr(entity_component, "get_entity"):
-            entity = entity_component.get_entity(self.source_entity_id)
-        else:
-            # Try to find in entities
-            for ent in entity_component.entities:
-                if ent.entity_id == self.source_entity_id:
-                    entity = ent
-                    break
+
+        # Method 1: Try entity_components (newer HA versions)
+        entity_components = self.hass.data.get("entity_components", {})
+        mp_component = entity_components.get("media_player")
+        if mp_component is not None:
+            if hasattr(mp_component, "get_entity"):
+                entity = mp_component.get_entity(self.source_entity_id)
+            elif hasattr(mp_component, "entities"):
+                for ent in mp_component.entities:
+                    if ent.entity_id == self.source_entity_id:
+                        entity = ent
+                        break
+
+        # Method 2: Try media_player domain directly
+        if entity is None:
+            mp_data = self.hass.data.get("media_player")
+            if mp_data is not None:
+                if hasattr(mp_data, "get_entity"):
+                    entity = mp_data.get_entity(self.source_entity_id)
+                elif hasattr(mp_data, "entities"):
+                    for ent in mp_data.entities:
+                        if ent.entity_id == self.source_entity_id:
+                            entity = ent
+                            break
+
+        # Method 3: Search through all data for entity platforms
+        if entity is None:
+            for key, value in self.hass.data.items():
+                if hasattr(value, "get_entity"):
+                    try:
+                        entity = value.get_entity(self.source_entity_id)
+                        if entity is not None:
+                            break
+                    except Exception:
+                        pass
+                elif hasattr(value, "entities"):
+                    try:
+                        for ent in value.entities:
+                            if hasattr(ent, "entity_id") and ent.entity_id == self.source_entity_id:
+                                entity = ent
+                                break
+                        if entity is not None:
+                            break
+                    except Exception:
+                        pass
 
         if entity is None:
-            raise UpdateFailed(f"Could not find entity {self.source_entity_id}")
+            raise UpdateFailed(
+                f"Could not find entity object for {self.source_entity_id}. "
+                "Make sure the Kodi integration is fully loaded."
+            )
 
         # Get the Kodi connection - it's stored as _kodi on the entity
         kodi = getattr(entity, "_kodi", None)
         if kodi is None:
-            raise UpdateFailed("Could not get Kodi connection from entity")
+            # Try alternate attribute names
+            kodi = getattr(entity, "kodi", None)
+            if kodi is None:
+                kodi = getattr(entity, "_player", None)
 
+        if kodi is None:
+            raise UpdateFailed(
+                f"Could not get Kodi connection from entity {self.source_entity_id}. "
+                "The entity may not be a Kodi media player."
+            )
+
+        # Cache for future use
+        self._kodi = kodi
         return kodi
 
     async def _async_update_data(self) -> dict[str, Any]:
