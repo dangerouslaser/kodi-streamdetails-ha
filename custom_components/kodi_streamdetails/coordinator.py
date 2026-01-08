@@ -49,7 +49,7 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._kodi = None
 
     async def _get_kodi_connection(self) -> Any:
-        """Get the Kodi connection."""
+        """Get the Kodi connection from the config entry's runtime_data."""
         # Return cached connection if available
         if self._kodi is not None:
             return self._kodi
@@ -59,85 +59,50 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if state is None:
             raise UpdateFailed(f"Entity {self.source_entity_id} not found")
 
-        # Method 1: Try to get Kodi connection from the Kodi integration's data
-        # The Kodi integration stores its data in hass.data["kodi"][config_entry_id]
-        if KODI_DOMAIN in self.hass.data:
-            kodi_data = self.hass.data[KODI_DOMAIN]
+        # Get the config_entry_id from the entity registry
+        entity_registry = er.async_get(self.hass)
+        source_entry = entity_registry.async_get(self.source_entity_id)
 
-            # Get the device_id from our source entity to match with Kodi entries
-            entity_registry = er.async_get(self.hass)
-            source_entry = entity_registry.async_get(self.source_entity_id)
+        if source_entry is None:
+            raise UpdateFailed(f"Entity {self.source_entity_id} not in registry")
 
-            if source_entry and source_entry.config_entry_id:
-                # Try to get the Kodi data for this config entry
-                if source_entry.config_entry_id in kodi_data:
-                    runtime_data = kodi_data[source_entry.config_entry_id]
-                    # The runtime data should have a 'kodi' attribute
-                    kodi = getattr(runtime_data, "kodi", None)
-                    if kodi is None:
-                        # Try as dict
-                        if isinstance(runtime_data, dict):
-                            kodi = runtime_data.get("kodi")
-                    if kodi is not None:
-                        self._kodi = kodi
-                        _LOGGER.debug("Found Kodi connection via config entry")
-                        return kodi
+        if source_entry.config_entry_id is None:
+            raise UpdateFailed(f"Entity {self.source_entity_id} has no config entry")
 
-            # Try iterating through all Kodi data entries
-            for entry_id, runtime_data in kodi_data.items():
-                if isinstance(entry_id, str):
-                    kodi = getattr(runtime_data, "kodi", None)
-                    if kodi is None and isinstance(runtime_data, dict):
-                        kodi = runtime_data.get("kodi")
-                    if kodi is not None:
-                        # Verify this Kodi instance by checking if the entity matches
-                        self._kodi = kodi
-                        _LOGGER.debug("Found Kodi connection via iteration")
-                        return kodi
+        # Get the config entry
+        config_entry = self.hass.config_entries.async_get_entry(source_entry.config_entry_id)
 
-        # Method 2: Try to access the entity object directly
-        entity = await self._find_entity_object()
-        if entity is not None:
-            kodi = getattr(entity, "_kodi", None)
+        if config_entry is None:
+            raise UpdateFailed(f"Config entry {source_entry.config_entry_id} not found")
+
+        # Modern HA (2024+): Access runtime_data on the config entry
+        runtime_data = getattr(config_entry, "runtime_data", None)
+
+        if runtime_data is not None:
+            # runtime_data is a KodiRuntimeData dataclass with 'kodi' attribute
+            kodi = getattr(runtime_data, "kodi", None)
             if kodi is not None:
                 self._kodi = kodi
-                _LOGGER.debug("Found Kodi connection via entity object")
+                _LOGGER.debug("Found Kodi connection via config entry runtime_data")
                 return kodi
+
+        # Fallback: Try hass.data["kodi"][config_entry_id] for older HA versions
+        if KODI_DOMAIN in self.hass.data:
+            kodi_data = self.hass.data[KODI_DOMAIN]
+            if source_entry.config_entry_id in kodi_data:
+                data = kodi_data[source_entry.config_entry_id]
+                kodi = getattr(data, "kodi", None)
+                if kodi is None and isinstance(data, dict):
+                    kodi = data.get("kodi")
+                if kodi is not None:
+                    self._kodi = kodi
+                    _LOGGER.debug("Found Kodi connection via hass.data")
+                    return kodi
 
         raise UpdateFailed(
             f"Could not find Kodi connection for {self.source_entity_id}. "
             "Make sure the Kodi integration is set up and the media player is available."
         )
-
-    async def _find_entity_object(self) -> Any:
-        """Try to find the entity object."""
-        # Try entity_components
-        entity_components = self.hass.data.get("entity_components", {})
-        mp_component = entity_components.get("media_player")
-
-        if mp_component is not None:
-            if hasattr(mp_component, "get_entity"):
-                entity = mp_component.get_entity(self.source_entity_id)
-                if entity is not None:
-                    return entity
-            if hasattr(mp_component, "entities"):
-                for ent in mp_component.entities:
-                    if ent.entity_id == self.source_entity_id:
-                        return ent
-
-        # Try media_player domain directly
-        mp_data = self.hass.data.get("media_player")
-        if mp_data is not None:
-            if hasattr(mp_data, "get_entity"):
-                entity = mp_data.get_entity(self.source_entity_id)
-                if entity is not None:
-                    return entity
-            if hasattr(mp_data, "entities"):
-                for ent in mp_data.entities:
-                    if ent.entity_id == self.source_entity_id:
-                        return ent
-
-        return None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Kodi."""
@@ -145,12 +110,7 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             kodi = await self._get_kodi_connection()
 
             # Get active players
-            try:
-                players = await kodi.call_method("Player.GetActivePlayers")
-            except Exception as err:
-                _LOGGER.debug("Error calling Player.GetActivePlayers: %s", err)
-                # Try alternate method signature
-                players = await kodi.call_method("Player.GetActivePlayers", None)
+            players = await kodi.call_method("Player.GetActivePlayers")
 
             if not players:
                 return self._empty_state()
