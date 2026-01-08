@@ -1,0 +1,83 @@
+"""Config flow for Kodi Stream Details integration."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+
+from .const import CONF_SOURCE_ENTITY, DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _get_kodi_entities(hass: HomeAssistant) -> list[str]:
+    """Get all Kodi media_player entities."""
+    entity_registry = er.async_get(hass)
+    kodi_entities = []
+
+    for entity_id, entry in entity_registry.entities.items():
+        if entry.domain == "media_player" and entry.platform == "kodi":
+            kodi_entities.append(entity_id)
+
+    return sorted(kodi_entities)
+
+
+class KodiStreamDetailsConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Kodi Stream Details."""
+
+    VERSION = 1
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the initial step."""
+        errors: dict[str, str] = {}
+
+        # Get available Kodi entities
+        kodi_entities = await self.hass.async_add_executor_job(
+            _get_kodi_entities, self.hass
+        )
+
+        if not kodi_entities:
+            return self.async_abort(reason="no_kodi_entities")
+
+        if user_input is not None:
+            source_entity = user_input[CONF_SOURCE_ENTITY]
+
+            # Check if this entity is already configured
+            await self.async_set_unique_id(source_entity)
+            self._abort_if_unique_id_configured()
+
+            # Validate the entity exists
+            if source_entity not in kodi_entities:
+                errors["base"] = "invalid_entity"
+            else:
+                # Get a friendly name for the config entry
+                entity_registry = er.async_get(self.hass)
+                entry = entity_registry.async_get(source_entity)
+                title = entry.name or entry.original_name if entry else source_entity
+                title = title or source_entity.replace("media_player.", "").replace("_", " ").title()
+
+                return self.async_create_entry(
+                    title=f"{title} Stream Details",
+                    data={CONF_SOURCE_ENTITY: source_entity},
+                )
+
+        # Build schema with available Kodi entities
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_SOURCE_ENTITY): vol.In(kodi_entities),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+        )

@@ -1,0 +1,99 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kodi Stream Details",
+        "description": "Select a Kodi media player to monitor for stream details.",
+        "data": {
+          "source_entity": "Kodi Media Player"
+        }
+      }
+    },
+    "error": {
+      "invalid_entity": "The selected entity is not a valid Kodi media player."
+    },
+    "abort": {
+      "already_configured": "This Kodi entity is already configured.",
+      "no_kodi_entities": "No Kodi media player entities found. Please set up the Kodi integration first."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "video_codec": {
+        "name": "Video Codec"
+      },
+      "video_resolution": {
+        "name": "Video Resolution"
+      },
+      "video_width": {
+        "name": "Video Width"
+      },
+      "video_height": {
+        "name": "Video Height"
+      },
+      "video_aspect": {
+        "name": "Aspect Ratio"
+      },
+      "video_hdr_type": {
+        "name": "HDR Type"
+      },
+      "video_stereo_mode": {
+        "name": "3D Mode"
+      },
+      "video_duration": {
+        "name": "Duration"
+      },
+      "audio_codec": {
+        "name": "Audio Codec"
+      },
+      "audio_channels": {
+        "name": "Audio Channels"
+      },
+      "audio_language": {
+        "name": "Audio Language"
+      },
+      "audio_name": {
+        "name": "Audio Track Name"
+      },
+      "audio_bitrate": {
+        "name": "Audio Bitrate"
+      },
+      "audio_stream_index": {
+        "name": "Audio Stream Index"
+      },
+      "audio_stream_count": {
+        "name": "Audio Stream Count"
+      },
+      "audio_is_default": {
+        "name": "Audio Is Default"
+      },
+      "audio_is_original": {
+        "name": "Audio Is Original"
+      },
+      "subtitle_enabled": {
+        "name": "Subtitles Enabled"
+      },
+      "subtitle_language": {
+        "name": "Subtitle Language"
+      },
+      "subtitle_name": {
+        "name": "Subtitle Track Name"
+      },
+      "subtitle_stream_index": {
+        "name": "Subtitle Stream Index"
+      },
+      "subtitle_stream_count": {
+        "name": "Subtitle Stream Count"
+      },
+      "subtitle_is_forced": {
+        "name": "Subtitle Is Forced"
+      },
+      "subtitle_is_impaired": {
+        "name": "Subtitle Is SDH/CC"
+      },
+      "playback_type": {
+        "name": "Playback Type"
+      }
+    }
+  }
+}
