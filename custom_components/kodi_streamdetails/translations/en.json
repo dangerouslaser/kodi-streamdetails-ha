@@ -17,6 +17,17 @@
       "no_kodi_entities": "No Kodi media player entities found. Please set up the Kodi integration first."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kodi Stream Details Options",
+        "description": "Configure the polling interval for stream details updates.",
+        "data": {
+          "poll_interval": "Polling Interval (seconds)"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "video_codec": {

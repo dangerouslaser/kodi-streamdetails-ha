@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_SOURCE_ENTITY, DOMAIN
+from .const import CONF_POLL_INTERVAL, CONF_SOURCE_ENTITY, DEFAULT_POLL_INTERVAL, DOMAIN
 from .coordinator import KodiStreamDetailsCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,10 +29,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         return False
 
+    # Get poll interval from options, fall back to default
+    poll_interval = entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+
     # Create the coordinator
     coordinator = KodiStreamDetailsCoordinator(
         hass=hass,
         source_entity_id=source_entity_id,
+        poll_interval=poll_interval,
     )
 
     # Fetch initial data
@@ -45,7 +49,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Register update listener for options changes
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
+
     return True
+
+
+async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update."""
+    # Reload the integration to apply new options
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

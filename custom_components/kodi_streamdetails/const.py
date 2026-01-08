@@ -6,7 +6,10 @@ DOMAIN: Final = "kodi_streamdetails"
 
 # Configuration
 CONF_SOURCE_ENTITY: Final = "source_entity"
+CONF_POLL_INTERVAL: Final = "poll_interval"
 DEFAULT_POLL_INTERVAL: Final = 5
+MIN_POLL_INTERVAL: Final = 1
+MAX_POLL_INTERVAL: Final = 60
 
 # Video codec normalization
 VIDEO_CODEC_MAP: Final = {

@@ -25,6 +25,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+KODI_DOMAIN = "kodi"
+
 
 class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to fetch stream details from Kodi."""
@@ -43,12 +45,59 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=poll_interval),
         )
         self.source_entity_id = source_entity_id
+        self._kodi_entity = None
+
+    async def _get_kodi_connection(self) -> Any:
+        """Get the Kodi connection from the media_player entity."""
+        # Get the entity from the state machine
+        state = self.hass.states.get(self.source_entity_id)
+        if state is None:
+            raise UpdateFailed(f"Entity {self.source_entity_id} not found")
+
+        # Access the Kodi integration's data to find the connection
+        # The Kodi integration stores its data keyed by config entry ID
+        if KODI_DOMAIN not in self.hass.data:
+            raise UpdateFailed("Kodi integration not loaded")
+
+        # Find the Kodi entity component
+        entity_component = self.hass.data.get("entity_components", {}).get("media_player")
+        if entity_component is None:
+            # Try alternate path
+            from homeassistant.helpers.entity_component import EntityComponent
+            from homeassistant.components.media_player import DOMAIN as MP_DOMAIN
+            entity_component = self.hass.data.get(MP_DOMAIN)
+
+        if entity_component is None:
+            raise UpdateFailed("Media player component not found")
+
+        # Get the entity
+        entity = None
+        if hasattr(entity_component, "get_entity"):
+            entity = entity_component.get_entity(self.source_entity_id)
+        else:
+            # Try to find in entities
+            for ent in entity_component.entities:
+                if ent.entity_id == self.source_entity_id:
+                    entity = ent
+                    break
+
+        if entity is None:
+            raise UpdateFailed(f"Could not find entity {self.source_entity_id}")
+
+        # Get the Kodi connection - it's stored as _kodi on the entity
+        kodi = getattr(entity, "_kodi", None)
+        if kodi is None:
+            raise UpdateFailed("Could not get Kodi connection from entity")
+
+        return kodi
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Kodi."""
         try:
+            kodi = await self._get_kodi_connection()
+
             # Get active players
-            players = await self._call_kodi_method("Player.GetActivePlayers")
+            players = await kodi.call_method("Player.GetActivePlayers")
 
             if not players:
                 return self._empty_state()
@@ -57,48 +106,36 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             player_type = players[0].get("type", "video")
 
             # Get item with stream details
-            item_result = await self._call_kodi_method(
+            item_result = await kodi.call_method(
                 "Player.GetItem",
-                playerid=player_id,
-                properties=["streamdetails", "title", "showtitle", "season", "episode", "type"],
+                {
+                    "playerid": player_id,
+                    "properties": ["streamdetails", "title", "showtitle", "season", "episode", "type"],
+                },
             )
 
             # Get current stream selection
-            props = await self._call_kodi_method(
+            props = await kodi.call_method(
                 "Player.GetProperties",
-                playerid=player_id,
-                properties=[
-                    "currentaudiostream",
-                    "currentsubtitle",
-                    "subtitleenabled",
-                    "audiostreams",
-                    "subtitles",
-                ],
+                {
+                    "playerid": player_id,
+                    "properties": [
+                        "currentaudiostream",
+                        "currentsubtitle",
+                        "subtitleenabled",
+                        "audiostreams",
+                        "subtitles",
+                    ],
+                },
             )
 
             return self._parse_stream_data(item_result, props, player_type)
 
+        except UpdateFailed:
+            raise
         except Exception as err:
             _LOGGER.error("Error fetching Kodi data: %s", err)
             raise UpdateFailed(f"Error fetching Kodi data: {err}") from err
-
-    async def _call_kodi_method(self, method: str, **params: Any) -> Any:
-        """Call Kodi JSON-RPC method via HA service."""
-        service_data = {
-            "entity_id": self.source_entity_id,
-            "method": method,
-        }
-        if params:
-            service_data.update(params)
-
-        result = await self.hass.services.async_call(
-            "kodi",
-            "call_method",
-            service_data,
-            blocking=True,
-            return_response=True,
-        )
-        return result
 
     def _parse_stream_data(
         self, item_result: dict[str, Any], props: dict[str, Any], player_type: str
@@ -127,12 +164,12 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         video_hdr_raw = video.get("hdrtype", "")
         video_duration = video.get("duration", 0)
 
-        audio_codec_raw = current_audio.get("codec", "")
+        audio_codec_raw = current_audio.get("codec", "") if current_audio else ""
         audio_codec = self._normalize_audio_codec(audio_codec_raw)
-        audio_channels_raw = current_audio.get("channels", 0)
-        audio_language = current_audio.get("language", "")
+        audio_channels_raw = current_audio.get("channels", 0) if current_audio else 0
+        audio_language = current_audio.get("language", "") if current_audio else ""
 
-        subtitle_language = current_subtitle.get("language", "") if subtitle_enabled else "off"
+        subtitle_language = current_subtitle.get("language", "") if subtitle_enabled and current_subtitle else "off"
 
         # Determine playback type
         playback_type = item.get("type", "unknown")
@@ -165,24 +202,24 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "audio_channels_raw": audio_channels_raw if audio_channels_raw else None,
             "audio_language": audio_language if audio_language else None,
             "audio_language_name": LANGUAGE_NAMES.get(audio_language, audio_language),
-            "audio_name": current_audio.get("name", "") or None,
-            "audio_bitrate": current_audio.get("bitrate", 0) or None,
-            "audio_bitrate_formatted": self._format_bitrate(current_audio.get("bitrate", 0)),
+            "audio_name": current_audio.get("name", "") if current_audio else None,
+            "audio_bitrate": current_audio.get("bitrate", 0) if current_audio else None,
+            "audio_bitrate_formatted": self._format_bitrate(current_audio.get("bitrate", 0) if current_audio else 0),
             "audio_stream_index": current_audio.get("index", 0) if current_audio else None,
             "audio_stream_count": len(audio_streams),
             "audio_streams": audio_streams,
-            "audio_is_default": "on" if current_audio.get("isdefault", False) else "off",
-            "audio_is_original": "on" if current_audio.get("isoriginal", False) else "off",
+            "audio_is_default": "on" if current_audio and current_audio.get("isdefault", False) else "off",
+            "audio_is_original": "on" if current_audio and current_audio.get("isoriginal", False) else "off",
             # Subtitles (from Player.GetProperties - includes track names)
             "subtitle_enabled": "on" if subtitle_enabled else "off",
             "subtitle_language": subtitle_language if subtitle_language else None,
             "subtitle_language_name": LANGUAGE_NAMES.get(subtitle_language, subtitle_language) if subtitle_enabled else None,
-            "subtitle_name": current_subtitle.get("name", "") if subtitle_enabled else None,
+            "subtitle_name": current_subtitle.get("name", "") if subtitle_enabled and current_subtitle else None,
             "subtitle_stream_index": current_subtitle.get("index", 0) if subtitle_enabled and current_subtitle else None,
             "subtitle_stream_count": len(subtitle_streams),
             "subtitle_streams": subtitle_streams,
-            "subtitle_is_forced": "on" if current_subtitle.get("isforced", False) else "off",
-            "subtitle_is_impaired": "on" if current_subtitle.get("isimpaired", False) else "off",
+            "subtitle_is_forced": "on" if current_subtitle and current_subtitle.get("isforced", False) else "off",
+            "subtitle_is_impaired": "on" if current_subtitle and current_subtitle.get("isimpaired", False) else "off",
             # Playback
             "playback_type": playback_type,
         }

@@ -7,11 +7,18 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_SOURCE_ENTITY, DOMAIN
+from .const import (
+    CONF_POLL_INTERVAL,
+    CONF_SOURCE_ENTITY,
+    DEFAULT_POLL_INTERVAL,
+    DOMAIN,
+    MAX_POLL_INTERVAL,
+    MIN_POLL_INTERVAL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +39,12 @@ class KodiStreamDetailsConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Kodi Stream Details."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Get the options flow for this handler."""
+        return KodiStreamDetailsOptionsFlow(config_entry)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -80,4 +93,41 @@ class KodiStreamDetailsConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=schema,
             errors=errors,
+        )
+
+
+class KodiStreamDetailsOptionsFlow(OptionsFlow):
+    """Handle options flow for Kodi Stream Details."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        # Get current values
+        current_poll_interval = self.config_entry.options.get(
+            CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL
+        )
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_POLL_INTERVAL,
+                    default=current_poll_interval,
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=MIN_POLL_INTERVAL, max=MAX_POLL_INTERVAL),
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
         )
