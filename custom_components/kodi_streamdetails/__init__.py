@@ -6,7 +6,8 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import CONF_POLL_INTERVAL, CONF_SOURCE_ENTITY, DEFAULT_POLL_INTERVAL, DOMAIN
 from .coordinator import KodiStreamDetailsCoordinator
@@ -48,6 +49,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Listen for state changes on the source Kodi entity
+    @callback
+    def _async_kodi_state_changed(event: Event) -> None:
+        """Handle Kodi media player state changes."""
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
+
+        if old_state is None or new_state is None:
+            return
+
+        old = old_state.state
+        new = new_state.state
+
+        # Trigger refresh on meaningful state changes
+        if old != new:
+            _LOGGER.debug(
+                "Kodi state changed from %s to %s, triggering refresh", old, new
+            )
+            hass.async_create_task(coordinator.async_request_refresh())
+
+    # Register the state change listener
+    entry.async_on_unload(
+        async_track_state_change_event(hass, source_entity_id, _async_kodi_state_changed)
+    )
 
     # Register update listener for options changes
     entry.async_on_unload(entry.add_update_listener(async_update_options))
