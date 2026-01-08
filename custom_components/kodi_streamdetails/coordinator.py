@@ -35,6 +35,9 @@ _LOGGER = logging.getLogger(__name__)
 KODI_DOMAIN = "kodi"
 ARTWORK_CACHE_DIR = "www/kodi_streamdetails"
 
+# Only cache essential artwork types
+ARTWORK_TO_CACHE = {"poster", "fanart", "clearlogo"}
+
 
 class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to fetch stream details from Kodi."""
@@ -434,6 +437,10 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         async with aiohttp.ClientSession() as session:
             for art_type, kodi_url in art_dict.items():
+                # Only cache essential artwork types
+                if art_type not in ARTWORK_TO_CACHE:
+                    continue
+
                 try:
                     # Decode the Kodi URL
                     actual_url = self._decode_kodi_image_url(kodi_url)
