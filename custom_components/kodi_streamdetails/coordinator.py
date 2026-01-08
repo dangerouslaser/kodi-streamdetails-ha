@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
+
+import aiohttp
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -27,6 +32,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 KODI_DOMAIN = "kodi"
+ARTWORK_CACHE_DIR = "www/kodi_streamdetails"
 
 
 class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -47,6 +53,13 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.source_entity_id = source_entity_id
         self._kodi = None
+        self._cached_artwork: dict[str, str] = {}
+        self._current_media_hash: str | None = None
+
+        # Set up artwork cache directory
+        entity_slug = source_entity_id.replace(".", "_")
+        self._cache_dir = Path(hass.config.path(ARTWORK_CACHE_DIR)) / entity_slug
+        self._local_url_base = f"/local/kodi_streamdetails/{entity_slug}"
 
     async def _get_kodi_connection(self) -> Any:
         """Get the Kodi connection from the config entry's runtime_data."""
@@ -113,18 +126,22 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             players = await kodi.call_method("Player.GetActivePlayers")
 
             if not players:
+                # Clear artwork cache when nothing is playing
+                if self._current_media_hash:
+                    await self._clear_cache()
+                    self._current_media_hash = None
+                    self._cached_artwork = {}
                 return self._empty_state()
 
             player_id = players[0]["playerid"]
             player_type = players[0].get("type", "video")
 
-            # Get item with stream details
+            # Get item with stream details and artwork
             # pykodi uses **kwargs, so pass params as keyword arguments
-            # Only request streamdetails - other fields may not be valid for all content types
             item_result = await kodi.call_method(
                 "Player.GetItem",
                 playerid=player_id,
-                properties=["streamdetails"],
+                properties=["streamdetails", "art", "thumbnail"],
             )
 
             # Get current stream selection
@@ -140,7 +157,18 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ],
             )
 
-            return self._parse_stream_data(item_result, props, player_type)
+            # Process artwork
+            item = item_result.get("item", {})
+            art_dict = item.get("art", {})
+
+            # Add thumbnail to art dict if present
+            if item.get("thumbnail"):
+                art_dict["thumbnail"] = item["thumbnail"]
+
+            # Cache artwork and get local URLs
+            cached_artwork = await self._cache_artwork(art_dict)
+
+            return self._parse_stream_data(item_result, props, player_type, cached_artwork)
 
         except UpdateFailed:
             raise
@@ -149,7 +177,11 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"Error fetching Kodi data: {err}") from err
 
     def _parse_stream_data(
-        self, item_result: dict[str, Any], props: dict[str, Any], player_type: str
+        self,
+        item_result: dict[str, Any],
+        props: dict[str, Any],
+        player_type: str,
+        cached_artwork: dict[str, str],
     ) -> dict[str, Any]:
         """Parse and normalize stream details."""
         item = item_result.get("item", {})
@@ -233,6 +265,9 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "subtitle_is_impaired": "on" if current_subtitle and current_subtitle.get("isimpaired", False) else "off",
             # Playback
             "playback_type": playback_type,
+            # Artwork
+            "artwork": cached_artwork,
+            "artwork_count": len(cached_artwork),
         }
 
     def _empty_state(self) -> dict[str, Any]:
@@ -277,6 +312,8 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "subtitle_is_forced": "off",
             "subtitle_is_impaired": "off",
             "playback_type": "",
+            "artwork": {},
+            "artwork_count": 0,
         }
 
     def _normalize_video_codec(self, codec: str) -> str | None:
@@ -350,3 +387,103 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if bitrate >= 1000:
             return f"{bitrate / 1000:.0f} kbps"
         return f"{bitrate} bps"
+
+    def _decode_kodi_image_url(self, kodi_url: str) -> str | None:
+        """Decode Kodi image:// URL to actual URL."""
+        if not kodi_url:
+            return None
+
+        # Kodi URLs look like: image://https%3a%2f%2fimage.tmdb.org%2f.../
+        # or image://encoded-path/
+        if kodi_url.startswith("image://"):
+            # Remove image:// prefix and trailing slash
+            encoded = kodi_url[8:]
+            if encoded.endswith("/"):
+                encoded = encoded[:-1]
+            # URL decode to get the actual URL
+            decoded = unquote(encoded)
+            return decoded
+
+        return kodi_url
+
+    async def _cache_artwork(self, art_dict: dict[str, str]) -> dict[str, str]:
+        """Download and cache artwork locally, return local URLs."""
+        if not art_dict:
+            return {}
+
+        # Create a hash of all artwork URLs to detect media changes
+        art_hash = hashlib.md5(str(sorted(art_dict.items())).encode()).hexdigest()[:12]
+
+        # If media changed, clear old cache
+        if art_hash != self._current_media_hash:
+            await self._clear_cache()
+            self._current_media_hash = art_hash
+            self._cached_artwork = {}
+
+        # Return cached URLs if already processed
+        if self._cached_artwork:
+            return self._cached_artwork
+
+        # Ensure cache directory exists
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+        cached_urls: dict[str, str] = {}
+
+        async with aiohttp.ClientSession() as session:
+            for art_type, kodi_url in art_dict.items():
+                try:
+                    # Decode the Kodi URL
+                    actual_url = self._decode_kodi_image_url(kodi_url)
+                    if not actual_url:
+                        continue
+
+                    # Skip non-http URLs (local files, etc.)
+                    if not actual_url.startswith(("http://", "https://")):
+                        _LOGGER.debug("Skipping non-HTTP artwork URL: %s", actual_url)
+                        continue
+
+                    # Generate filename based on art type
+                    # Sanitize art_type for filename (replace dots with underscores)
+                    safe_art_type = art_type.replace(".", "_").replace("/", "_")
+
+                    # Get file extension from URL or default to jpg
+                    ext = Path(actual_url.split("?")[0]).suffix or ".jpg"
+                    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+                        ext = ".jpg"
+
+                    filename = f"{safe_art_type}{ext}"
+                    filepath = self._cache_dir / filename
+
+                    # Download the image
+                    async with session.get(actual_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                        if response.status == 200:
+                            content = await response.read()
+                            filepath.write_bytes(content)
+                            cached_urls[art_type] = f"{self._local_url_base}/{filename}"
+                            _LOGGER.debug("Cached artwork %s to %s", art_type, filepath)
+                        else:
+                            _LOGGER.debug("Failed to download %s: HTTP %s", art_type, response.status)
+
+                except aiohttp.ClientError as err:
+                    _LOGGER.debug("Error downloading artwork %s: %s", art_type, err)
+                except Exception as err:
+                    _LOGGER.debug("Unexpected error caching artwork %s: %s", art_type, err)
+
+        self._cached_artwork = cached_urls
+        return cached_urls
+
+    async def _clear_cache(self) -> None:
+        """Clear the artwork cache directory."""
+        if self._cache_dir.exists():
+            try:
+                for file in self._cache_dir.iterdir():
+                    if file.is_file():
+                        file.unlink()
+                _LOGGER.debug("Cleared artwork cache at %s", self._cache_dir)
+            except Exception as err:
+                _LOGGER.debug("Error clearing cache: %s", err)
+
+    async def async_shutdown(self) -> None:
+        """Clean up on shutdown."""
+        await self._clear_cache()
+        await super().async_shutdown()

@@ -242,6 +242,11 @@ SENSOR_TYPES: Final = {
         "name": "Playback Type",
         "icon": "mdi:play-circle",
     },
+    # Artwork sensor
+    "artwork_count": {
+        "name": "Artwork",
+        "icon": "mdi:image-multiple",
+    },
 }
 
 # ISO 639-2 language code to name mapping (common languages)

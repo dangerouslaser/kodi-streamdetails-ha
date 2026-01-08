@@ -104,6 +104,9 @@
       },
       "playback_type": {
         "name": "Playback Type"
+      },
+      "artwork_count": {
+        "name": "Artwork"
       }
     }
   }

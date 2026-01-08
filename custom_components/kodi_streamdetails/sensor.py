@@ -188,6 +188,12 @@ class KodiStreamDetailsSensor(CoordinatorEntity[KodiStreamDetailsCoordinator], S
         elif self._sensor_type == "playback_type":
             attrs["media_type"] = data.get("playback_type")
 
+        elif self._sensor_type == "artwork_count":
+            # Expose all artwork URLs as attributes
+            artwork = data.get("artwork", {})
+            for art_type, url in artwork.items():
+                attrs[art_type] = url
+
         return attrs if attrs else None
 
     @property
