@@ -119,27 +119,24 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             player_type = players[0].get("type", "video")
 
             # Get item with stream details
+            # pykodi uses **kwargs, so pass params as keyword arguments
             item_result = await kodi.call_method(
                 "Player.GetItem",
-                {
-                    "playerid": player_id,
-                    "properties": ["streamdetails", "title", "showtitle", "season", "episode", "type"],
-                },
+                playerid=player_id,
+                properties=["streamdetails", "title", "showtitle", "season", "episode", "type"],
             )
 
             # Get current stream selection
             props = await kodi.call_method(
                 "Player.GetProperties",
-                {
-                    "playerid": player_id,
-                    "properties": [
-                        "currentaudiostream",
-                        "currentsubtitle",
-                        "subtitleenabled",
-                        "audiostreams",
-                        "subtitles",
-                    ],
-                },
+                playerid=player_id,
+                properties=[
+                    "currentaudiostream",
+                    "currentsubtitle",
+                    "subtitleenabled",
+                    "audiostreams",
+                    "subtitles",
+                ],
             )
 
             return self._parse_stream_data(item_result, props, player_type)
