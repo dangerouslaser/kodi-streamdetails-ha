@@ -101,19 +101,23 @@ class KodiStreamDetailsSensor(CoordinatorEntity[KodiStreamDetailsCoordinator], S
     def native_value(self) -> Any:
         """Return the state of the sensor."""
         if self.coordinator.data is None:
-            return None
+            return ""
 
         data = self.coordinator.data
 
         # For certain sensors, show display name as state value
         if self._sensor_type == "video_codec":
-            return data.get("video_codec_display") or data.get("video_codec")
+            return data.get("video_codec_display") or ""
         if self._sensor_type == "video_hdr_type":
-            return data.get("video_hdr_type_display") or data.get("video_hdr_type")
+            return data.get("video_hdr_type_display") or ""
         if self._sensor_type == "audio_codec":
-            return data.get("audio_codec_display") or data.get("audio_codec")
+            return data.get("audio_codec_display") or ""
 
-        return data.get(self._sensor_type)
+        # Return empty string instead of None for blank display
+        value = data.get(self._sensor_type)
+        if value is None:
+            return ""
+        return value
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:

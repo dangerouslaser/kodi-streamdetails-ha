@@ -183,15 +183,15 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         subtitle_language = current_subtitle.get("language", "") if subtitle_enabled and current_subtitle else "off"
 
         # Determine playback type
-        playback_type = item.get("type", "unknown")
-        if playback_type == "unknown" and player_type == "audio":
+        playback_type = item.get("type", "")
+        if not playback_type and player_type == "audio":
             playback_type = "song"
 
         return {
             # Video (from streamdetails)
             "video_codec": video_codec,
             "video_codec_raw": video_codec_raw,
-            "video_codec_display": VIDEO_CODEC_DISPLAY.get(video_codec, video_codec.upper() if video_codec else None),
+            "video_codec_display": VIDEO_CODEC_DISPLAY.get(video_codec),
             "video_width": video_width if video_width else None,
             "video_height": video_height if video_height else None,
             "video_resolution": self._derive_resolution(video_width),
@@ -208,11 +208,11 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Audio (from Player.GetProperties - includes Atmos detection)
             "audio_codec": audio_codec,
             "audio_codec_raw": audio_codec_raw,
-            "audio_codec_display": AUDIO_CODEC_DISPLAY.get(audio_codec, audio_codec.upper() if audio_codec else None),
+            "audio_codec_display": AUDIO_CODEC_DISPLAY.get(audio_codec),
             "audio_channels": self._format_channels(audio_channels_raw),
             "audio_channels_raw": audio_channels_raw if audio_channels_raw else None,
             "audio_language": audio_language if audio_language else None,
-            "audio_language_name": LANGUAGE_NAMES.get(audio_language, audio_language),
+            "audio_language_name": LANGUAGE_NAMES.get(audio_language),
             "audio_name": current_audio.get("name", "") if current_audio else None,
             "audio_bitrate": current_audio.get("bitrate", 0) if current_audio else None,
             "audio_bitrate_formatted": self._format_bitrate(current_audio.get("bitrate", 0) if current_audio else 0),
@@ -224,7 +224,7 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Subtitles (from Player.GetProperties - includes track names)
             "subtitle_enabled": "on" if subtitle_enabled else "off",
             "subtitle_language": subtitle_language if subtitle_language else None,
-            "subtitle_language_name": LANGUAGE_NAMES.get(subtitle_language, subtitle_language) if subtitle_enabled else None,
+            "subtitle_language_name": LANGUAGE_NAMES.get(subtitle_language) if subtitle_enabled else None,
             "subtitle_name": current_subtitle.get("name", "") if subtitle_enabled and current_subtitle else None,
             "subtitle_stream_index": current_subtitle.get("index", 0) if subtitle_enabled and current_subtitle else None,
             "subtitle_stream_count": len(subtitle_streams),
@@ -276,7 +276,7 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "subtitle_streams": [],
             "subtitle_is_forced": "off",
             "subtitle_is_impaired": "off",
-            "playback_type": "idle",
+            "playback_type": "",
         }
 
     def _normalize_video_codec(self, codec: str) -> str | None:
