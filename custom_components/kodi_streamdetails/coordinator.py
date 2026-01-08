@@ -120,11 +120,11 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Get item with stream details
             # pykodi uses **kwargs, so pass params as keyword arguments
-            # Note: "type" is not a valid property - it's returned automatically in the item
+            # Only request streamdetails - other fields may not be valid for all content types
             item_result = await kodi.call_method(
                 "Player.GetItem",
                 playerid=player_id,
-                properties=["streamdetails", "title", "showtitle", "season", "episode"],
+                properties=["streamdetails"],
             )
 
             # Get current stream selection
