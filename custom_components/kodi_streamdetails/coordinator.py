@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,7 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._kodi = None
         self._cached_artwork: dict[str, str] = {}
         self._current_media_hash: str | None = None
+        self._cache_timestamp: int = 0
 
         # Set up artwork cache directory
         entity_slug = source_entity_id.replace(".", "_")
@@ -418,6 +420,7 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if art_hash != self._current_media_hash:
             await self._clear_cache()
             self._current_media_hash = art_hash
+            self._cache_timestamp = int(time.time())
             self._cached_artwork = {}
 
         # Return cached URLs if already processed
@@ -460,7 +463,7 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             content = await response.read()
                             filepath.write_bytes(content)
                             # Add cache-busting query param to prevent browser caching
-                            cached_urls[art_type] = f"{self._local_url_base}/{filename}?v={art_hash}"
+                            cached_urls[art_type] = f"{self._local_url_base}/{filename}?t={self._cache_timestamp}"
                             _LOGGER.debug("Cached artwork %s to %s", art_type, filepath)
                         else:
                             _LOGGER.debug("Failed to download %s: HTTP %s", art_type, response.status)

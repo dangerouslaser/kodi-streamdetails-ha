@@ -1,0 +1,82 @@
+type: custom:button-card
+entity: sensor.macbook_pro_m4_pro_testing_artwork
+show_name: false
+show_icon: false
+show_state: false
+styles:
+  card:
+    - background-image: |
+        [[[
+          var fanart = states['sensor.macbook_pro_m4_pro_testing_artwork'].attributes.fanart;
+          return fanart ? 'url("' + fanart + '")' : 'none';
+        ]]]
+    - background-size: cover
+    - background-position: center
+    - height: 300px
+    - position: relative
+    - border-radius: 15px
+  custom_fields:
+    clearart:
+      - position: absolute
+      - top: 50%
+      - left: 50%
+      - transform: translate(-50%, -50%)
+      - width: 100%
+    infobar:
+      - position: absolute
+      - bottom: 0
+      - left: 0
+      - right: 0
+custom_fields:
+  clearart:
+    card:
+      type: custom:button-card
+      show_name: false
+      show_icon: false
+      show_state: false
+      entity_picture: "[[[ return states['sensor.macbook_pro_m4_pro_testing_artwork'].attributes.clearart ]]]"
+      show_entity_picture: true
+      styles:
+        card:
+          - background: transparent
+          - box-shadow: none
+          - border: none
+          - filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7))
+        entity_picture:
+          - width: 46%
+          - border: none
+          - border-radius: 0
+  infobar:
+    card:
+      type: custom:button-card
+      show_name: false
+      show_icon: false
+      show_state: false
+      custom_fields:
+        res: "[[[ return states['sensor.macbook_pro_m4_pro_testing_video_resolution'].state ]]]"
+        hdr: "[[[ return states['sensor.macbook_pro_m4_pro_testing_hdr_type'].state ]]]"
+        audio: "[[[ return states['sensor.macbook_pro_m4_pro_testing_audio_codec'].state ]]]"
+      styles:
+        card:
+          - background: rgba(0, 0, 0, 0.8)
+          - border-radius: 0
+          - border-top-left-radius: 15px
+          - border-top-right-radius: 15px
+          - padding: 10px
+          - box-shadow: none
+        custom_fields:
+          res:
+            - color: white
+            - font-weight: bold
+            - font-size: 14px
+          hdr:
+            - color: white
+            - font-weight: bold
+            - font-size: 14px
+          audio:
+            - color: white
+            - font-weight: bold
+            - font-size: 14px
+        grid:
+          - grid-template-areas: '"res hdr audio"'
+          - grid-template-columns: 1fr 1fr 1fr
