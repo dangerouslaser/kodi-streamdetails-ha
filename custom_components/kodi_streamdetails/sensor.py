@@ -102,7 +102,18 @@ class KodiStreamDetailsSensor(CoordinatorEntity[KodiStreamDetailsCoordinator], S
         """Return the state of the sensor."""
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.get(self._sensor_type)
+
+        data = self.coordinator.data
+
+        # For certain sensors, show display name as state value
+        if self._sensor_type == "video_codec":
+            return data.get("video_codec_display") or data.get("video_codec")
+        if self._sensor_type == "video_hdr_type":
+            return data.get("video_hdr_type_display") or data.get("video_hdr_type")
+        if self._sensor_type == "audio_codec":
+            return data.get("audio_codec_display") or data.get("audio_codec")
+
+        return data.get(self._sensor_type)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -117,8 +128,8 @@ class KodiStreamDetailsSensor(CoordinatorEntity[KodiStreamDetailsCoordinator], S
         if self._sensor_type == "video_codec":
             if data.get("video_codec_raw"):
                 attrs["raw_codec"] = data["video_codec_raw"]
-            if data.get("video_codec_display"):
-                attrs["display_name"] = data["video_codec_display"]
+            if data.get("video_codec"):
+                attrs["normalized"] = data["video_codec"]
 
         elif self._sensor_type == "video_resolution":
             if data.get("video_width"):
@@ -133,8 +144,8 @@ class KodiStreamDetailsSensor(CoordinatorEntity[KodiStreamDetailsCoordinator], S
         elif self._sensor_type == "video_hdr_type":
             if data.get("video_hdr_type_raw"):
                 attrs["raw_hdrtype"] = data["video_hdr_type_raw"]
-            if data.get("video_hdr_type_display"):
-                attrs["display_name"] = data["video_hdr_type_display"]
+            if data.get("video_hdr_type"):
+                attrs["normalized"] = data["video_hdr_type"]
 
         elif self._sensor_type == "video_duration":
             if data.get("video_duration_formatted"):
@@ -143,8 +154,8 @@ class KodiStreamDetailsSensor(CoordinatorEntity[KodiStreamDetailsCoordinator], S
         elif self._sensor_type == "audio_codec":
             if data.get("audio_codec_raw"):
                 attrs["raw_codec"] = data["audio_codec_raw"]
-            if data.get("audio_codec_display"):
-                attrs["display_name"] = data["audio_codec_display"]
+            if data.get("audio_codec"):
+                attrs["normalized"] = data["audio_codec"]
 
         elif self._sensor_type == "audio_channels":
             if data.get("audio_channels_raw"):

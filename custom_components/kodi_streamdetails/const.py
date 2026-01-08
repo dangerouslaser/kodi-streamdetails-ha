@@ -91,7 +91,7 @@ HDR_TYPE_MAP: Final = {
 }
 
 HDR_TYPE_DISPLAY: Final = {
-    "dolbyvision": "Dolby Vision",
+    "dolbyvision": "DV",
     "hdr10": "HDR10",
     "hdr10plus": "HDR10+",
     "hlg": "HLG",
