@@ -459,7 +459,8 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         if response.status == 200:
                             content = await response.read()
                             filepath.write_bytes(content)
-                            cached_urls[art_type] = f"{self._local_url_base}/{filename}"
+                            # Add cache-busting query param to prevent browser caching
+                            cached_urls[art_type] = f"{self._local_url_base}/{filename}?v={art_hash}"
                             _LOGGER.debug("Cached artwork %s to %s", art_type, filepath)
                         else:
                             _LOGGER.debug("Failed to download %s: HTTP %s", art_type, response.status)
