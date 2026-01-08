@@ -50,29 +50,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Listen for state changes on the source Kodi entity
+    # Listen for state changes on the source Kodi entity for instant updates
     @callback
     def _async_kodi_state_changed(event: Event) -> None:
         """Handle Kodi media player state changes."""
-        old_state = event.data.get("old_state")
-        new_state = event.data.get("new_state")
+        try:
+            old_state = event.data.get("old_state")
+            new_state = event.data.get("new_state")
 
-        if old_state is None or new_state is None:
-            return
+            if old_state is None or new_state is None:
+                return
 
-        old = old_state.state
-        new = new_state.state
+            old = old_state.state
+            new = new_state.state
 
-        # Trigger refresh on meaningful state changes
-        if old != new:
-            _LOGGER.debug(
-                "Kodi state changed from %s to %s, triggering refresh", old, new
-            )
-            hass.async_create_task(coordinator.async_request_refresh())
+            # Trigger refresh on meaningful state changes
+            if old != new:
+                _LOGGER.debug(
+                    "Kodi state changed from %s to %s, triggering refresh", old, new
+                )
+                hass.async_create_task(coordinator.async_request_refresh())
+        except Exception as err:
+            _LOGGER.debug("Error in state change handler: %s", err)
 
     # Register the state change listener
     entry.async_on_unload(
-        async_track_state_change_event(hass, source_entity_id, _async_kodi_state_changed)
+        async_track_state_change_event(
+            hass, [source_entity_id], _async_kodi_state_changed
+        )
     )
 
     # Register update listener for options changes
