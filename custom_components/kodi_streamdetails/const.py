@@ -39,17 +39,27 @@ VIDEO_CODEC_DISPLAY: Final = {
 
 # Audio codec normalization
 AUDIO_CODEC_MAP: Final = {
+    # Dolby TrueHD / Atmos
     "truehd_atmos": "truehd_atmos",
     "truehd": "truehd",
+    # Dolby Digital+ (E-AC-3) / Atmos
     "eac3_atmos": "eac3_atmos",
+    "eac3_ddp_atmos": "eac3_atmos",
+    "ddp_atmos": "eac3_atmos",
+    "ec3_atmos": "eac3_atmos",
     "eac3": "eac3",
     "ec3": "eac3",
+    "ddp": "eac3",
+    # Dolby Digital (AC-3)
     "ac3": "ac3",
+    "dd": "ac3",
+    # DTS variants
     "dtshd_ma": "dtshd_ma",
     "dtshd_hra": "dtshd_hra",
     "dtsx": "dtsx",
     "dca": "dts",
     "dts": "dts",
+    # Other codecs
     "aac": "aac",
     "flac": "flac",
     "pcm": "pcm",
