@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -45,8 +46,6 @@ async def _get_device_info(
     hass: HomeAssistant, source_entity_id: str, entry: ConfigEntry
 ) -> DeviceInfo:
     """Get device info from the source Kodi entity."""
-    from homeassistant.helpers import device_registry as dr, entity_registry as er
-
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
 

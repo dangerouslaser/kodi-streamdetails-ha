@@ -14,6 +14,7 @@ import aiohttp
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -176,8 +177,10 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self._parse_stream_data(item_result, props, player_type, cached_artwork)
 
         except UpdateFailed:
+            self._kodi = None
             raise
         except Exception as err:
+            self._kodi = None
             _LOGGER.error("Error fetching Kodi data: %s", err)
             raise UpdateFailed(f"Error fetching Kodi data: {err}") from err
 
@@ -411,6 +414,17 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return kodi_url
 
+    def _sync_ensure_cache_dir(self) -> None:
+        """Create cache directory if needed (sync, run in executor)."""
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _sync_clear_cache_dir(self) -> None:
+        """Remove all files from cache directory (sync, run in executor)."""
+        if self._cache_dir.exists():
+            for file in self._cache_dir.iterdir():
+                if file.is_file():
+                    file.unlink()
+
     async def _cache_artwork(self, art_dict: dict[str, str]) -> dict[str, str]:
         """Download and cache artwork locally, return local URLs."""
         if not art_dict:
@@ -431,68 +445,65 @@ class KodiStreamDetailsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self._cached_artwork
 
         # Ensure cache directory exists
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        await self.hass.async_add_executor_job(self._sync_ensure_cache_dir)
 
         cached_urls: dict[str, str] = {}
 
-        async with aiohttp.ClientSession() as session:
-            for art_type, kodi_url in art_dict.items():
-                # Only cache essential artwork types
-                if art_type not in ARTWORK_TO_CACHE:
+        session = async_get_clientsession(self.hass)
+        for art_type, kodi_url in art_dict.items():
+            # Only cache essential artwork types
+            if art_type not in ARTWORK_TO_CACHE:
+                continue
+
+            try:
+                # Decode the Kodi URL
+                actual_url = self._decode_kodi_image_url(kodi_url)
+                if not actual_url:
                     continue
 
-                try:
-                    # Decode the Kodi URL
-                    actual_url = self._decode_kodi_image_url(kodi_url)
-                    if not actual_url:
-                        continue
+                # Skip non-http URLs (local files, etc.)
+                if not actual_url.startswith(("http://", "https://")):
+                    _LOGGER.debug("Skipping non-HTTP artwork URL: %s", actual_url)
+                    continue
 
-                    # Skip non-http URLs (local files, etc.)
-                    if not actual_url.startswith(("http://", "https://")):
-                        _LOGGER.debug("Skipping non-HTTP artwork URL: %s", actual_url)
-                        continue
+                # Generate filename based on art type
+                # Sanitize art_type for filename (replace dots with underscores)
+                safe_art_type = art_type.replace(".", "_").replace("/", "_")
 
-                    # Generate filename based on art type
-                    # Sanitize art_type for filename (replace dots with underscores)
-                    safe_art_type = art_type.replace(".", "_").replace("/", "_")
+                # Get file extension from URL or default to jpg
+                ext = Path(actual_url.split("?")[0]).suffix or ".jpg"
+                if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+                    ext = ".jpg"
 
-                    # Get file extension from URL or default to jpg
-                    ext = Path(actual_url.split("?")[0]).suffix or ".jpg"
-                    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
-                        ext = ".jpg"
+                filename = f"{safe_art_type}{ext}"
+                filepath = self._cache_dir / filename
 
-                    filename = f"{safe_art_type}{ext}"
-                    filepath = self._cache_dir / filename
+                # Download the image
+                async with session.get(actual_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        content = await response.read()
+                        await self.hass.async_add_executor_job(filepath.write_bytes, content)
+                        # Add cache-busting query param to prevent browser caching
+                        cached_urls[art_type] = f"{self._local_url_base}/{filename}?t={self._cache_timestamp}"
+                        _LOGGER.debug("Cached artwork %s to %s", art_type, filepath)
+                    else:
+                        _LOGGER.debug("Failed to download %s: HTTP %s", art_type, response.status)
 
-                    # Download the image
-                    async with session.get(actual_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                        if response.status == 200:
-                            content = await response.read()
-                            filepath.write_bytes(content)
-                            # Add cache-busting query param to prevent browser caching
-                            cached_urls[art_type] = f"{self._local_url_base}/{filename}?t={self._cache_timestamp}"
-                            _LOGGER.debug("Cached artwork %s to %s", art_type, filepath)
-                        else:
-                            _LOGGER.debug("Failed to download %s: HTTP %s", art_type, response.status)
-
-                except aiohttp.ClientError as err:
-                    _LOGGER.debug("Error downloading artwork %s: %s", art_type, err)
-                except Exception as err:
-                    _LOGGER.debug("Unexpected error caching artwork %s: %s", art_type, err)
+            except aiohttp.ClientError as err:
+                _LOGGER.debug("Error downloading artwork %s: %s", art_type, err)
+            except Exception as err:
+                _LOGGER.debug("Unexpected error caching artwork %s: %s", art_type, err)
 
         self._cached_artwork = cached_urls
         return cached_urls
 
     async def _clear_cache(self) -> None:
         """Clear the artwork cache directory."""
-        if self._cache_dir.exists():
-            try:
-                for file in self._cache_dir.iterdir():
-                    if file.is_file():
-                        file.unlink()
-                _LOGGER.debug("Cleared artwork cache at %s", self._cache_dir)
-            except Exception as err:
-                _LOGGER.debug("Error clearing cache: %s", err)
+        try:
+            await self.hass.async_add_executor_job(self._sync_clear_cache_dir)
+            _LOGGER.debug("Cleared artwork cache at %s", self._cache_dir)
+        except Exception as err:
+            _LOGGER.debug("Error clearing cache: %s", err)
 
     async def async_shutdown(self) -> None:
         """Clean up on shutdown."""
